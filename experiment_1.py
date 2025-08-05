@@ -167,14 +167,14 @@ BATCH_SIZE = 16
 # Initialize tokenizer
 tokenizer = DistilBertTokenizer.from_pretrained('distilbert/distilbert-base-uncased')
 
-random_samples
+print(random_samples)
 
 test_dataset = PrecomputedTeacherTextRegressionDataset(random_samples, tokenizer, TEXT_COLUMN)
 test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE)
 
 result = inference_student_model(model,test_loader,device)
 
-len(result)
+print(len(result))
 
 # 1. Add the predictions as a new column
 random_samples["predicted_toxicity"] = result
@@ -183,5 +183,5 @@ random_samples["predicted_toxicity"] = result
 result_sorted = random_samples.sort_values("predicted_toxicity", ascending=False)
 
 # 3. (Optional) Inspect
-result_sorted
+print(result_sorted)
 
