@@ -1,5 +1,7 @@
 # ndss-loki-artifact
-Companion repository for our NDSS'26 Loki paper 
+Companion repository for our NDSS'26 Loki paper. 
+
+Models and datasets used as part of the evaluation are available in [Zenodo](https://zenodo.org/records/16741269)
 
 ## Setup 
 Run the script load_models_and_datasets.py to download all the datasets and models used in the paper. Also make sure to re-use the same cache directory used in this script on subsequent experiments for caching purposes. 
