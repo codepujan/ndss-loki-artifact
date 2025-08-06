@@ -129,7 +129,7 @@ def generate_performance_table(fold_data,
 heuristics = [
     'informational',
     'commercial',
-    'low_competition',
+    'low_competiton',
     'medium_competition',
     'longtail',
 ]
