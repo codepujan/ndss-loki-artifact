@@ -2,69 +2,103 @@
 # -*- coding: utf-8 -*-
 """
 setup_experiment.py
-
-Preload all datasets and model weights for further experiments.
-caching everything under a single HF_CACHE directory.
+Download datasets and model weights from Zenodo, unzip, and load locally.
 """
 
+import sys
 import os
 import torch
-from huggingface_hub import hf_hub_download
-from datasets import load_dataset
+import zipfile
+import urllib.request
+from datasets import load_from_disk
 from transformers import DistilBertTokenizer, DistilBertModel
-
 # ─── 1. CONFIGURE CACHE ───────────────────────────────────────────────────────
-
-# Change this path to wherever you’d like all HF artifacts to live
 HF_CACHE = os.path.expanduser("./HF_CACHE")
+ZENODO_CACHE = os.path.join(HF_CACHE, "zenodo_data")
+os.makedirs(ZENODO_CACHE, exist_ok=True)
 
-# Make sure the cache dir exists
-os.makedirs(HF_CACHE, exist_ok=True)
-
-# Tell all HF libraries to use this folder
-os.environ["HF_HOME"]           = HF_CACHE
+os.environ["HF_HOME"] = HF_CACHE
 os.environ["TRANSFORMERS_CACHE"] = HF_CACHE
 os.environ["HF_DATASETS_CACHE"] = HF_CACHE
-
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
+# ─── 2. DEFINE ZENODO ARTIFACTS ───────────────────────────────────────────────
 
-print("▶️  Loading dataset ‘ppaudel/loki-test-folds’ …")
-fold_data = load_dataset("ppaudel/loki-test-folds")
+ZENODO_ARTIFACTS = {
+    "dataset": {
+        "url": "https://zenodo.org/records/16741269/files/loki-test-folds.zip",  
+        "target_dir": os.path.join(ZENODO_CACHE, "loki-test-folds")
+    },
+    "teacher_models": {
+        f"fold{i}": {
+            "url": f"https://zenodo.org/record/16741269/files/teacher-fold-{i}.zip", 
+            "target_dir": os.path.join(ZENODO_CACHE, f"loki-model-teacher-fold-{i}")
+        } for i in range(1,6)
+    },
+    "student_models": {
+        f"fold{i}": {
+            "url": f"https://zenodo.org/record/16741269/files/student-fold-{i}.zip", 
+            "target_dir": os.path.join(ZENODO_CACHE, f"loki-model-student-fold-{i}")
+        } for i in range(1,6)
+    }
+}
+
+# ─── 3. DOWNLOAD & UNZIP FUNCTION ─────────────────────────────────────────────
+
+def download_and_unzip(url, dest_dir):
+    os.makedirs(dest_dir, exist_ok=True)
+    zip_path = dest_dir + ".zip"
+
+    if not os.path.exists(zip_path):
+        print(f"⬇️ Downloading {url} …")
+        urllib.request.urlretrieve(url, zip_path)
+    else:
+        print(f"📦  Found existing ZIP: {zip_path}")
+
+    print(f"🧩 Unzipping {zip_path} into {dest_dir} …")
+    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+        zip_ref.extractall(dest_dir)
+
+# ─── 4. DOWNLOAD & LOAD DATASET ───────────────────────────────────────────────
+
+dataset_info = ZENODO_ARTIFACTS["dataset"]
+download_and_unzip(dataset_info["url"], dataset_info["target_dir"])
+
+print("▶️  Loading dataset from disk …")
+fold_data = load_from_disk(dataset_info["target_dir"])
 folds = list(fold_data.keys())
 
-
+# ─── 5. LOAD BASE MODEL & TOKENIZER ───────────────────────────────────────────
 
 BASE_MODEL = "distilbert-base-uncased"
-print(f"▶️  Preloading tokenizer & base model ({BASE_MODEL}) …")
+print(f"▶️  Loading tokenizer & base model ({BASE_MODEL}) …")
 tokenizer = DistilBertTokenizer.from_pretrained(BASE_MODEL, cache_dir=HF_CACHE)
 _ = DistilBertModel.from_pretrained(BASE_MODEL, cache_dir=HF_CACHE)
 
+# ─── 6. DOWNLOAD MODELS FOR EACH FOLD ─────────────────────────────────────────
+for fold_id in range(1,6):
+    fold = "fold"+str(fold_id)
 
+    # Teacher
+    teacher_info = ZENODO_ARTIFACTS["teacher_models"][fold]
+    download_and_unzip(teacher_info["url"], teacher_info["target_dir"])
+    teacher_model_path = os.path.join(teacher_info["target_dir"], "pytorch_model.bin")
+    print(f"✅  Teacher model for fold {fold_id} ready at {teacher_model_path}")
 
-for fold in folds:
-    fold_id = fold[-1]
-    # teacher
-    repo_teacher = f"ppaudel/loki-model-teacher-fold-{fold_id}"
-    print(f"▶️  Downloading teacher weights for fold {fold_id} …")
-    tf = hf_hub_download(
-        repo_id=repo_teacher,
-        filename="pytorch_model.bin",
-        repo_type="model",
-        cache_dir=HF_CACHE
-    )
+    # Student
+    student_info = ZENODO_ARTIFACTS["student_models"][fold]
+    download_and_unzip(student_info["url"], student_info["target_dir"])
+    student_model_path = os.path.join(student_info["target_dir"], "pytorch_model.bin")
+    print(f"✅  Student model for fold {fold_id} ready at {student_model_path}")
 
-    # student
-    repo_student = f"ppaudel/loki-model-student-fold-{fold_id}"
-    print(f"▶️  Downloading student weights for fold {fold_id} …")
-    sf = hf_hub_download(
-        repo_id=repo_student,
-        filename="pytorch_model.bin",
-        repo_type="model",
-        cache_dir=HF_CACHE
-    )
+# --- Also Download additional metadata files -------------
+print("Downloading remaining metadata files")
+KEYWORD_CATEGORIES_URL = "https://zenodo.org/records/16741269/files/keywords_categories.json"
+urllib.request.urlretrieve(KEYWORD_CATEGORIES_URL, "keywords_categories.json")
 
-
-print("🎉  Setup complete. Everything is downloaded, cached, and ready to go!")
+NER_OUTPUT_URL = "https://zenodo.org/records/16741269/files/query_ner_output.json"
+urllib.request.urlretrieve(NER_OUTPUT_URL,"query_ner_output.json")
+# ─── 8. DONE ──────────────────────────────────────────────────────────────────
+print("🎉   Setup complete. Everything downloaded and unzipped from Zenodo.")
